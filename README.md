@@ -1,2 +1,2 @@
-# datapy
+# zenframe
 a simpler Python dataframe
