@@ -9,5 +9,6 @@ dependencies:
   - attrs
   - pytest
   - pandas
+  - pyyaml
 prefix: /home/jack/.miniconda3/envs/zenframe
 

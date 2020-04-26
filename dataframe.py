@@ -33,15 +33,18 @@ import pandas as pd
 
 
 class Index:
+    """ Encapsulates a mapping from user-specified index values to indicies
+    to a np.ndarray: the `find` method. This mapping can be right-composed with
+    others to create new indexes. The more convoluted the composition, the
+    more expensive it will become to access the underlying numpy arrays, until
+    the user decides to reshape
+    """
     def find(self, idx):  # return whatever is needed to index a numpy array
         ...
 
-    @property
-    def shape(self):
-        ...
-
-    @property
-    def is_sparse(self):
+    def fits(self, shape):
+        """ True if the index can be used to access a numpy array of the given shape.
+        """
         ...
 
     def __contains__(self, idx):
@@ -62,13 +65,13 @@ class Field(ty.Generic[T]):
     """ sequence of T """
     _array: np.ndarray = attr.ib()
     _null_mask: np.ndarray = attr.ib()
-    _index: pd.MultiIndex  # optional?
+    _index: Index
 
     def __getitem__(self, idx) -> ty.Optional[T]:  # idx could be a slice
         ...
 
     def __setitem__(self, idx, value: ty.Optional[T]):  # idx could be a slice
-        # if idx exists, replace the value; if not, raise an exception
+        """ if idx exists, replace the value; if not, raise an exception """
         ...
 
     def __iter__(self):
@@ -79,6 +82,10 @@ class Field(ty.Generic[T]):
 
     def __len__(self):
         return len(self._array)
+
+    @classmethod
+    def copy(self) -> 'Field':
+        ...
 
     @property
     def shape(self) -> ty.Tuple[int, ...]:
@@ -103,7 +110,7 @@ class DataFrame:
     Each 'row' is has a fixed length and heterogeneous type.
     The collection of rows is of variable length and homogeneous type.
     Each 'column' is a nullable field, with every element the same type.
-    Types:
+    Types (similar to numpy):
     - boolean
     - categorical (enum)
     - integer
@@ -114,24 +121,24 @@ class DataFrame:
 
     Encourage subclassing to add chained methods.
     """
-    _fields: ty.Dict[str, Field]
-    index: pd.MultiIndex
+    _fields: ty.MutableMapping[str, Field]  # an OrderedDict
+    _index: Index
 
     @property
-    def f(self):
+    def index(self):
+        return self._index
+
+    @property
+    def fields(self):
         return Fields(self)
-
-    @property
-    def i(self):
-        return self.index
-
-    @property
-    def r(self):
-        return self.rows
 
     @property
     def rows(self) -> ty.Sequence[ty.Mapping]:
         return Rows(self)
+
+    i = index
+    f = fields
+    r = rows
 
     @classmethod
     def from_arrays(cls, arrays: ty.Mapping[str, ty.Sequence],
@@ -143,39 +150,37 @@ class DataFrame:
                      index: pd.MultIndex, dtypes) -> 'DataFrame':
         ...
 
-    @classmethod
-    def copy(cls, other: 'DataFrame') -> 'DataFrame':
-        ...
+    def copy(self) -> 'DataFrame':
+        return attr.evolve(self, fields={
+            name: field.copy() for name, field in self._fields.items()
+        })
 
-    def __getitem__(self, idx_field):
-        idx, field = idx_field[:-1], idx_field[-1]
-        return self.f[field][idx]
+    def reshape(self):
+        """ reshape each field according to the current index """
+        return DataFrame(
+            fields={name: field.reshape(self._index)
+                    for name, field in self._fields.items()},
+            index=self._index.flatten(),
+        )
 
-    def __setitem__(self, idx_field, value):
-        idx, field = idx_field[:-1], idx_field[-1]
-        self.f[field][idx] = value
-
-    @property
-    def shape(self):
-        return (*self.index.shape, len(self.fields))
-
-    def join(self, other, how, left_on, right_on, suffixes=('_x', '_y'),
-             validate=None) -> 'DataFrame':
-        """ combine columns """
-        ...
-
-    def concat(self, other) -> 'DataFrame':
-        """ combine rows """
-        ...
-
-    def assign(self, field_name, func) -> 'DataFrame':
-        """ like r.map, but returns a new dataframe with one more column """
-        new_df = DataFrame.copy(self)
-        new_df._fields[field_name] = self.r.map(func)  # allow this coupling?
-        return new_df
+    # for later:
+    # def join(self, other, how, left_on, right_on, suffixes=('_x', '_y'),
+    #          validate=None) -> 'DataFrame':
+    #     """ combine columns """
+    #     ...
+    #
+    # def concat(self, other) -> 'DataFrame':
+    #     """ combine rows """
+    #     ...
+    #
+    # def assign(self, field_name, func) -> 'DataFrame':
+    #     """ like r.map, but returns a new dataframe with one more column """
+    #     new_df = DataFrame.copy(self)
+    #     new_df._fields[field_name] = self.r.map(func)  # allow this coupling?
+    #     return new_df
 
 
-@attr.s(auto_attribs=True)  # should this be immutable?
+@attr.s(auto_attribs=True, slots=True, frozen=True)
 class Fields:  # should this be nested in DataFrame?
     """ sliceable mapping of names to fields """
     _df: DataFrame
@@ -200,7 +205,9 @@ class Fields:  # should this be nested in DataFrame?
 
 
 class Row:
-    """ sliceable mapping of names to elements """
+    """ sliceable mapping of names to elements
+    Elements can be updated but not added or deleted.
+    """
     def __getitem__(self, name):  # name could be a slice
         ...
 
@@ -208,6 +215,9 @@ class Row:
         ...
 
     def __contains__(self, name):
+        # If a row is a mapping, contains must refer to the field names.
+        # But this does not sound like what a user would expect; it's
+        # more intuitive if a row is a container of values rather than keys.
         ...
 
     def __iter__(self):  # like dict.keys()?
