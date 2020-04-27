@@ -25,6 +25,8 @@ It's a great way to get more advanced functionality for various use cases
 while keeping those use cases in separate namespaces. Just keep to the
 public interface, ok? :)
 """
+import copy
+import functools as ft
 import typing as ty
 
 import attr
@@ -32,29 +34,41 @@ import numpy as np
 import pandas as pd
 
 
-class Index:
+IDX = ty.TypeVar('IDX')
+
+
+class Index(ty.Protocol, ty.Collection[IDX], ty.Hashable):
     """ Encapsulates a mapping from user-specified index values to indicies
     to a np.ndarray: the `find` method. This mapping can be right-composed with
     others to create new indexes. The more convoluted the composition, the
     more expensive it will become to access the underlying numpy arrays, until
-    the user decides to reshape
+    the user decides to reshape.
     """
-    def find(self, idx):  # return whatever is needed to index a numpy array
-        ...
+    def find(self, *obj):
+        """ Returns whatever is needed to index a numpy array. """
+        pass
 
-    def fits(self, shape):
-        """ True if the index can be used to access a numpy array of the given shape.
-        """
-        ...
+    def fits_around(self, inner: 'Index') -> bool:
+        """ True if this index can be composed with `inner` safely. """
+        pass
 
-    def __contains__(self, idx):
-        ...
 
-    def __iter__(self):
-        ...
+class ComposeableIndexMixin:
+    def fits_around(self: Index, inner: Index) -> bool:
+        return all(self.find(idx) in inner for idx in self)
 
-    def __len__(self):
-        ...
+    def compose(self, inner: Index, verify: bool = False) -> 'Index':
+        if verify and not self.fits_around(inner):
+            raise IndexError('the domain of inner does not match the codomain of outer')
+
+        new_index = copy.copy(self)
+
+        @ft.wraps(new_index.find)
+        def composed(idx):
+            return inner.find(self.find(idx))
+
+        new_index.find = composed
+        return new_index
 
 
 T = ty.TypeVar('T')
@@ -67,40 +81,46 @@ class Field(ty.Generic[T]):
     _null_mask: np.ndarray = attr.ib()
     _index: Index
 
-    def __getitem__(self, idx) -> ty.Optional[T]:  # idx could be a slice
-        ...
+    def __getitem__(self, idx) -> ty.Optional[T]:
+        np_idx = self._index.find(idx)
+        if self._null_mask[np_idx]:
+            return self._array[np_idx]
+        else:
+            return None
 
-    def __setitem__(self, idx, value: ty.Optional[T]):  # idx could be a slice
+    def __setitem__(self, idx, value: ty.Optional[T]):
         """ if idx exists, replace the value; if not, raise an exception """
-        ...
+        np_idx = self._index.find(idx)
+        if value is None:
+            self._null_mask[np_idx] = False
+        else:
+            self._array[np_idx] = value
 
     def __iter__(self):
-        ...
+        for idx in self._index:
+            yield self[idx]
 
     def __contains__(self, value):
         ...
 
     def __len__(self):
-        return len(self._array)
+        return len(self._index)
 
-    @classmethod
-    def copy(self) -> 'Field':
-        ...
-
-    @property
-    def shape(self) -> ty.Tuple[int, ...]:
-        return self._index.shape
-
-    def map(self, func: ty.Callable[T, ty.Any]) -> 'Field':
+    def map(self, func: ty.Callable[[T], ty.Any]) -> 'Field':
         """ apply `func` to every item """
-        ...
+        new_array = copy.copy(self._array)
+        for np_idx, value in np.ndenumerate(self._array):
+            if self._null_mask[np_idx]:
+                new_array[np_idx] = func(value)
+        return attr.evolve(self, array=new_array)
 
-    def filter(self, pred: ty.Callable[T, bool]) -> 'Field':
+    def filter(self, pred: ty.Callable[[T], bool]) -> 'Field':
         """ unindex each element for which `pred` is False (in new Series) """
         ...
 
-    def accum(self, accum_func) -> 'Field':
-        ...
+    # for later
+    # def accum(self, accum_func) -> 'Field':
+    #     ...
 
 
 @attr.s(auto_attribs=True)
@@ -152,7 +172,7 @@ class DataFrame:
 
     def copy(self) -> 'DataFrame':
         return attr.evolve(self, fields={
-            name: field.copy() for name, field in self._fields.items()
+            name: copy.copy(field) for name, field in self._fields.items()
         })
 
     def reshape(self):
