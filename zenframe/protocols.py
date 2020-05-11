@@ -14,6 +14,8 @@ class ComposeableIndex(ty.Collection[FROM_IDX], ty.Protocol[TO_IDX]):
     others to create new indexes. The more convoluted the composition, the
     more expensive it will become to access the underlying numpy arrays, until
     the user decides to reshape.
+
+    This index protocol can't handle slices yet, but eventually it should.
     """
     def find(self, idx: FROM_IDX) -> TO_IDX:
         """ Returns whatever is needed to index a numpy array. """
