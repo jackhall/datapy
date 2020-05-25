@@ -84,12 +84,14 @@ class SequenceIndex(ComposeableIndex[int, TO_IDX], ty.Generic[TO_IDX]):
     """ Useful for sorting when right-composed with an existing index (so TO_IDX==int). """
     idx_seq: ty.Sequence[TO_IDX] = attr.ib()
 
-    __contains__ = delegate('__contains__', 'idx_seq')
     __len__ = delegate('__len__', 'idx_seq')
     find = _reraise_index_error(IndexError, find_method=delegate('__getitem__', 'idx_seq'))
 
+    def __contains__(self, obj):
+        return isinstance(obj, int) and (0 <= obj < len(self))
+
     def __iter__(self):
-        return range(len(self.idx_seq))
+        return iter(range(len(self.idx_seq)))
 
     @idx_seq.validator
     def check_unique(self, attribute, value):

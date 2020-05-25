@@ -6,4 +6,3 @@ from .index import (
     FunctionIndex,
     SequenceIndex,
 )
-from . import protocols
