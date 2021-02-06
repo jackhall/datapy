@@ -4,5 +4,6 @@ from .field import (
 from .index import (
     DictIndex,
     FunctionIndex,
+    MatrixIndex,
     SequenceIndex,
 )
