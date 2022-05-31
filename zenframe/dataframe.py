@@ -1,15 +1,15 @@
 import copy
+from dataclasses import dataclass, replace
 import typing as ty
 
-import attr
-
-from .protocols import ComposeableIndex, IndexedNullableField
+from .index import ComposeableIndex
+from .field import IndexedNullableField
 
 
 T = ty.TypeVar('T')
 
 
-@attr.s(auto_attribs=True)
+@dataclass
 class DataFrame:
     """
     Rows are hierarchically indexed to provide arbitrary dimensionality.
@@ -57,8 +57,8 @@ class DataFrame:
         ...
 
     def copy(self) -> 'DataFrame':
-        return attr.evolve(self, fields={
-            name: copy.copy(field) for name, field in self._fields.items()
+        return replace(self, _fields={
+            name: copy.copy(field) for name, field in self._fields.items
         })
 
     def reshape(self):
@@ -86,7 +86,7 @@ class DataFrame:
     #     return new_df
 
 
-@attr.s(auto_attribs=True, slots=True, frozen=True)
+@dataclass(frozen=True)
 class Fields:  # should this be nested in DataFrame?
     """ sliceable mapping of names to fields """
     _df: DataFrame
@@ -133,19 +133,20 @@ class Row:
         ...
 
 
-R = ty.Mapping  # R := row type
+R = ty.TypeVar("R")  # R := row type (mapping?)
 
 
-@attr.s(auto_attribs=True, slots=True, frozen=True)
+
+@dataclass(frozen=True)
 class Rows(ty.Generic[R]):  # should this be nested in DataFrame?
     """ sequence of namedtuples """
     _df: DataFrame
 
-    def map(self, func: ty.Callable[R, ty.Any]) -> IndexedNullableField:
+    def map(self, func: ty.Callable[[R], ty.Any]) -> IndexedNullableField:
         """ apply func to every row """
         ...
 
-    def filter(self, pred: ty.Callable[R, bool]) -> DataFrame:
+    def filter(self, pred: ty.Callable[[R], bool]) -> DataFrame:
         """ unindex each row for which `pred` is False (in new df) """
         ...
 

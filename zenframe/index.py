@@ -1,10 +1,10 @@
 import copy
+from dataclasses import dataclass, replace
 import functools as ft
 import itertools as it
+from multiprocessing.sharedctypes import Value
 import operator as op
 import typing as ty
-
-import attr
 
 from .common import delegate
 
@@ -34,22 +34,24 @@ class ComposeableIndex(ty.Collection[FROM_IDX], ty.Protocol[TO_IDX]):
 
     def __hash__(self) -> int:
         return ft.reduce(op.xor, map(hash, self.items()))
+    
+    def mask(self, to_remove: ty.Mapping[FROM_IDX, bool]) -> 'ComposeableIndex':
+        raise NotImplementedError
 
 
 def compatible(left: ComposeableIndex, right: ComposeableIndex) -> bool:
     return all(left[idx] in right for idx in left)
 
 
-def compose(left: ComposeableIndex, right: ComposeableIndex, verify=False) -> ComposeableIndex:
+def compose(left: ComposeableIndex, right: ComposeableIndex, verify: bool = False) -> ComposeableIndex:
     """ True if the two indexes can be composed safely. """
     if verify and not compatible(left, right):
         raise IndexError('the domain of inner does not match the codomain of self')
 
     new_index = copy.copy(left)
 
-    @ft.wraps(new_index.find)
-    def composed_getitem(idx):
-        return right[left[idx]]
+    def composed_getitem(self, idx):
+        return right[self[idx]]
 
     new_index.__getitem__ = composed_getitem
     return new_index
@@ -80,11 +82,11 @@ def _check_contains_first(find_method):
     return new_find_method
 
 
-@attr.s(auto_attribs=True, slots=True, frozen=True)
+@dataclass(frozen=True)
 class SequenceIndex(ComposeableIndex[int, TO_IDX], ty.Generic[TO_IDX]):
     """ Useful for sorting when right-composed with an existing index (so TO_IDX==int).
     """
-    _idx_seq: ty.Sequence[TO_IDX] = attr.ib()
+    _idx_seq: ty.Sequence[TO_IDX]
 
     __len__ = delegate('__len__', '_idx_seq')
     __getitem__ = _reraise_index_error(IndexError,
@@ -96,13 +98,16 @@ class SequenceIndex(ComposeableIndex[int, TO_IDX], ty.Generic[TO_IDX]):
     def __iter__(self):
         return iter(range(len(self._idx_seq)))
 
-    @_idx_seq.validator
-    def check_unique(self, attribute, value):
-        if len(value) > len(set(value)):
+    def __post_init__(self):
+        if len(self._idx_seq) > len(set(self._idx_seq)):
             raise ValueError('sequence elements must be unique')
+    
+    def mask(self, to_keep: ty.Mapping[int, bool]) -> 'SequenceIndex':
+        new_idx_seq = tuple(filter(to_keep.__getitem__, self._idx_seq))
+        return replace(self, _idx_seq=new_idx_seq)
 
 
-@attr.s(auto_attribs=True, slots=True, frozen=True)
+@dataclass(frozen=True)
 class DictIndex(ComposeableIndex[FROM_IDX, TO_IDX]):
     _mapping: ty.Mapping[TO_IDX, FROM_IDX]
 
@@ -113,7 +118,7 @@ class DictIndex(ComposeableIndex[FROM_IDX, TO_IDX]):
         method=delegate('__getitem__', '_mapping'))
 
 
-@attr.s(auto_attribs=True, slots=True, frozen=True)
+@dataclass(frozen=True)
 class FunctionIndex(ComposeableIndex[FROM_IDX, TO_IDX]):
     function: ty.Callable[[FROM_IDX], TO_IDX]
     domain: ty.AbstractSet[FROM_IDX]
@@ -132,7 +137,7 @@ def coerce_idx(i: int, n: int) -> int:
         return positive
 
 
-@attr.s(auto_attribs=True, slots=True, frozen=True)
+@dataclass(frozen=True)
 class MatrixIndex(ComposeableIndex[ty.Tuple[int, int], int]):
     nrows: int
     ncols: int

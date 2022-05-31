@@ -11,7 +11,7 @@ abstraction.
 That said, this alternative owes much to pandas. The concept of hierarchical
 indexes and how they can be used to create multi-dimensionality, all the
 struggles over handling and representing null values, an understanding of
-what users need from a dataframe... datapy would not be possible without this
+what users need from a dataframe... zenframe would not be possible without this
 collective experience.
 
 I will focus on the Zen of Python, in particular:
@@ -22,7 +22,7 @@ I will focus on the Zen of Python, in particular:
 
 A dataframe should not surprise the user!
 
-If this interface doesn't do everything you want, extend it with a mixin!
+If this interface doesn't do everything you want, extend it!
 It's a great way to get more advanced functionality for various use cases
 while keeping those use cases in separate namespaces. Just keep to the
 public interface, ok? :)
